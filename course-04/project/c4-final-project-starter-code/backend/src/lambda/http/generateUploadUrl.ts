@@ -1,52 +1,35 @@
 import 'source-map-support/register'
 
-import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
 import * as middy from 'middy'
-import { cors } from 'middy/middlewares'
-import * as AWSXRay from 'aws-xray-sdk'
-import * as uuid from 'uuid';
-import * as AWS  from 'aws-sdk'
+import { cors, httpErrorHandler } from 'middy/middlewares'
 
-import { setItemUrl } from '../../businessLogic/todos'
-//import { createAttachmentPresignedUrl } from '../../businessLogic/todos'
-//import { getUserId } from '../utils'
+import { createAttachmentPresignedUrl } from '../../businessLogic/todos'
+import { getUserId } from '../utils'
 
-const bucketName = process.env.ATTACHMENTS_S3_BUCKET
-const urlExpiration = process.env.SIGNED_URL_EXPIRATION
-
-const XAWS = AWSXRay.captureAWS(AWS)
-
-const s3 = new XAWS.S3({
-  signatureVersion: 'v4'
-})
-
-function getUploadUrl(imageId: string) {
-  return s3.getSignedUrl('putObject', {
-    Bucket: bucketName,
-    Key: imageId,
-    Expires: urlExpiration
-  })
-}
-
-// We don't create the uploaded image until the user edits the item so we need to upload it here instead and set it...
-const getUploadUrlHandler: APIGatewayProxyHandler = middy(async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  console.log(event)
-  const todoId = event.pathParameters.todoId
-  const authorization = event.headers.Authorization;
-  const split = authorization.split(' ')
-  const jwtToken = split[1]
-
-  const id = uuid.v4();
-  setItemUrl(todoId, `https://${bucketName}.s3.amazonaws.com/${id}`, jwtToken);
-
-  const url = getUploadUrl(id)
-
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      uploadUrl: url
-    })
+export const handler = middy(
+  async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    const todoId = event.pathParameters.todoId
+    // TODO: Return a presigned URL to upload a file for a TODO item with the provided id
+    const userId = getUserId(event)
+    console.log('userId:', userId)
+    const url = await createAttachmentPresignedUrl(
+     todoId,
+     userId    
+    )
+    return {
+     statusCode: 201,
+     body: JSON.stringify({
+       uploadUrl: url
+     })
+    }
   }
-})
+)
 
-export const handler = middy(getUploadUrlHandler).use(cors({ credentials: true }));
+handler
+  .use(httpErrorHandler())
+  .use(
+    cors({
+      credentials: true
+    })
+  )
